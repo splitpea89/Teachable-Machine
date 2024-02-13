@@ -1,145 +1,321 @@
-// To play: click to spawn a ball. Use the arrow keys to control gravity.
+// Copyright (c) 2019 ml5
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
 
-var balls = [];
-var ballSize = 50;
-var gravity = 1;
-var gravityDir = 0;
-var size = 750
-// 0 - 3, down, right, up, left
+/* ===
+ml5 Example
+Webcam Image Classification using a pre-trained customized model and p5.js
+This example uses p5 preload function to create the classifier
+=== */
 
-function setup() {
-  createCanvas(size, size);
+// Classifier Variable
+let classifier;
+// Model URL
+let imageModelURL = 'https://teachablemachine.withgoogle.com/models/d4thLjDuI/';
+
+// Video
+let video;
+let flippedVideo;
+// To store the classification
+let label = "";
+
+let poseNet;
+let poses = [];
+
+class GridPoint {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  getScreenX() {
+    return(this.x*50 + 25);
+  }
+  getScreenY() {
+    return(this.y*50 + 25);
+  }
+}
+
+class SnakeSegment {
+  constructor(pos, isHead) {
+    this.pos = pos;
+    this.isHead = isHead;
+  }
+  moveTo(segment) {
+    this.pos.x = segment.pos.x;
+    this.pos.y = segment.pos.y;
+  }
+}
+
+let snakeList = [new SnakeSegment(new GridPoint(5, 5), true)];
+let applePos = new GridPoint(5,2);
+let direction = 0; // 0 up, 1 right, 2 down, 3 left
+
+let gameStarted = false;
+let t = 0;
+let lastX;
+let lastY;
+
+let screenUpdateMs = 400;
+
+function drawBackground() {
+  let darkSquare = false;
+  for(let i = 0; i <= 10; i++) {
+    for(let j = 0; j <= 10; j++) {
+      if(darkSquare) {
+        fill(30, 140, 0);
+        darkSquare = false;
+      } else {
+        fill(70, 200, 0);
+        darkSquare = true;
+      }
+      rect(50 * j + 25, 50 * i + 25, 50, 50);
+    }
+  }
+}
+
+function spawnApple() {
+  applePos = randomEmptySquare();
+}
+
+function resetGame() {
+  gameStarted = false;
+  snakeList = [new SnakeSegment(new GridPoint(5, 5), true)];
+  applePos = new GridPoint(5, 2);
+}
+
+function randomEmptySquare() {
+
+  let possibleSquares = [];
+
+  for(let i = 0; i < 10; i++) {
+    for(let j = 0; j < 10; j++) {
+
+      for(let i = 0; i < snakeList.length; i++) {
+        let segment = snakeList[i]
+
+        if(segment.pos.x == i && segment.pos.y == j) {
+          continue;
+        }
+      }
+
+      append(possibleSquares, new GridPoint(i, j));
+    }
+  }
+
+
+  let randIndex = int(Math.round((Math.random() * (possibleSquares.length - 1))));
+
+  return(possibleSquares[randIndex]);
+
+}
+
+function gameOver() {
+
+  gameStarted = false;
+  fill(255, 255, 255);
+  rect(250, 250, 160, 75);
+  fill(0, 0, 0);
+  text("Game Over!", 250, 250, 125, 75);
+
+}
+
+function checkValidSquare(x, y) {
+
+  for(let i = 0; i < snakeList.length; i++) {
+    let segment = snakeList[i]
+    if(x == segment.pos.x && y == segment.pos.y) {
+      if(snakeList.indexOf(segment) != snakeList.length - 1) {
+        return(false);
+      }
+    }
+  }
+
+  if(x<0 || x>10) {
+    return(false);
+  }
+
+  if(y<0 || y>10) {
+    return(false);
+  }
+
+  return(true);
+
+}
+
+function win() {
+
+  gameStarted = false;
+  fill(255, 255, 255);
+  rect(250, 250, 160, 75);
+  fill(0, 200, 50);
+  text("You Won!!", 250, 250, 125, 75);
+
+}
+
+function mousePressed() {
+  if (!gameStarted) {
+    resetGame();
+    gameStarted = true;
+  }
+}
+
+// Load the model first
+function preload() {
+  classifier = ml5.imageClassifier(imageModelURL + 'model.json');
+}
+
+async function setup() {
+  createCanvas(550, 800);
+  // Create the video
+  video = createCapture(VIDEO);
+  video.size(320, 240);
+  video.hide();
+
+  flippedVideo = ml5.flipImage(video)
+
+  classifyVideo();
+
+  noStroke();
+  rectMode(CENTER);
+  textSize(20);
+  textAlign(CENTER, CENTER);
+
+  drawBackground();
+
+  t = millis();
 }
 
 function draw() {
-  background(220);
+  // TODO: Main Game Loop
 
-  // Effect of Gravity
-  if(gravityDir == 0) {
-    for(var i = 0; i < balls.length; i += 1) {
-      if(!(abs(balls[i].vel.y) <= 3 && balls[i].pos.y >= size - (balls[i].size/2))) {
-        balls[i].vel.y += gravity;
-      } else {
-        balls[i].vel.y = 0;
+  image(flippedVideo, 120, 575);
+
+  fill(255);
+  textSize(25);
+  textAlign(CENTER);
+  text(label, width / 2, height - 10);
+
+  let ms = millis();
+
+  if(snakeList.length > 80) {
+    win();
+  }
+
+  if(label == "Up" && direction != 2) {
+    direction = 0;
+  } else if(label == "Right" && direction != 3) {
+    direction = 1;
+  } else if(label == "Down" && direction != 0) {
+    direction = 2;
+  } else if(label == "Left" && direction != 1) {
+    direction = 3;
+  }
+
+  if(gameStarted) {
+
+    if(ms - t > screenUpdateMs) {
+
+      drawBackground();
+
+      t = millis();
+
+      lastX = snakeList[snakeList.length - 1].pos.x;
+      lastY = snakeList[snakeList.length - 1].pos.y;
+
+      if(direction == 0) {
+        if(!checkValidSquare(snakeList[0].pos.x, snakeList[0].pos.y - 1)) {
+          gameOver();
+        }
+      } else if(direction == 1) {
+        if(!checkValidSquare(snakeList[0].pos.x + 1, snakeList[0].pos.y)) {
+          gameOver();
+        }
+      } else if(direction == 2) {
+        if(!checkValidSquare(snakeList[0].pos.x, snakeList[0].pos.y + 1)) {
+          gameOver();
+        }
+      } else if(direction == 3) {
+        if(!checkValidSquare(snakeList[0].pos.x - 1, snakeList[0].pos.y)) {
+          gameOver();
+        }
       }
-    }
-  } else if(gravityDir == 1) {
-    for(var i = 0; i < balls.length; i += 1) {
-      if(!(abs(balls[i].vel.x) <= 3 && balls[i].pos.x >= size - (balls[i].size/2))) {
-        balls[i].vel.x += gravity;
-      } else {
-        balls[i].vel.x = 0;
+
+      if(gameStarted) {
+
+        for(let i = snakeList.length - 1; i > 0; i--) {
+          snakeList[i].moveTo(snakeList[i-1]);
+        }
+
+
+        if(direction == 0) {
+          snakeList[0].pos.y -= 1;
+        } else if(direction == 1) {
+          snakeList[0].pos.x += 1;
+        } else if(direction == 2) {
+          snakeList[0].pos.y += 1;
+        } else if(direction == 3) {
+          snakeList[0].pos.x -= 1;
+        }
+
       }
-    }
-  } else if(gravityDir == 2) {
-    for(var i = 0; i < balls.length; i += 1) {
-      if(!(abs(balls[i].vel.y) <= 3 && balls[i].pos.y <= 0 + (balls[i].size/2))) {
-        balls[i].vel.y -= gravity;
-      } else {
-        balls[i].vel.y = 0;
+
+      if(snakeList[0].pos.x == applePos.x && snakeList[0].pos.y == applePos.y) {
+
+        spawnApple();
+        let newSegment = new SnakeSegment(new GridPoint(lastX, lastY), false);
+        append(snakeList, newSegment);
+
       }
-    }
-  } else if(gravityDir == 3) {
-    for(var i = 0; i < balls.length; i += 1) {
-      if(!(abs(balls[i].vel.x) <= 3 && balls[i].pos.x <= 0 + (balls[i].size/2))) {
-        balls[i].vel.x -= gravity;
-      } else {
-        balls[i].vel.x = 0;
-      }
-    }
-  }
 
-  // Move Balls
-  for(var i = 0; i < balls.length; i += 1) {
-    balls[i].pos.x += balls[i].vel.x;
-    balls[i].pos.y += balls[i].vel.y;
-  }
-
-  // Check Floor/Ceiling Collision
-  for(var i = 0; i < balls.length; i += 1) {
-    if(abs(balls[i].pos.y - (size/2)) >= (size/2) - (balls[i].size/2)) {
-      // Handle Collision (bounce)
-      if(abs(balls[i].vel.y) > 0) {
-        balls[i].vel.y *= -0.9;
-      }
-    }
-  }
-
-  // Check Wall Collision
-  for(var i = 0; i < balls.length; i += 1) {
-    if(abs(balls[i].pos.x - (size/2)) >= (size/2) - (balls[i].size/2)) {
-      balls[i].vel.x *= -0.9;
-    }
-  }
-
-  // Keep Balls In Bounds
-  for(var i = 0; i < balls.length; i += 1) {
-    if(balls[i].pos.x < 0 + (balls[i].size/2)) {
-      balls[i].pos.x = 0 + (balls[i].size/2);
-    } else if(balls[i].pos.x > size - (balls[i].size/2)) {
-      balls[i].pos.x = size - (balls[i].size/2);
     }
 
-    if(balls[i].pos.y < 0 + (balls[i].size/2)) {
-      balls[i].pos.y = 0 + (balls[i].size/2);
-    } else if(balls[i].pos.y > size - (balls[i].size/2)) {
-      balls[i].pos.y = size - (balls[i].size/2);
-    }
   }
 
-  // Draw Balls
-  for(var i = 0; i < balls.length; i += 1) {
-    ellipse(balls[i].pos.x, balls[i].pos.y, ballSize, ballSize);
-  }
+  let segmentSize;
 
-  // Air Resistance
-  for(var i = 0; i < balls.length; i += 1) {
-    balls[i].vel.y *= 0.99;
-    balls[i].vel.x *= 0.99;
-  }
+  for(let i = 0; i < snakeList.length; i++) {
 
+     let segment = snakeList[i];
+
+     if(segment.isHead) {
+       fill(100, 100, 255);
+       segmentSize = 45;
+     } else if(snakeList.indexOf(segment) % 2 == 0) {
+       fill(140, 150, 140);
+       segmentSize = 35;
+     } else {
+       fill(150, 140, 150);
+       segmentSize = 40;
+     }
+
+     rect(segment.pos.getScreenX(), segment.pos.getScreenY(), segmentSize, segmentSize);
+
+   }
+
+   fill(255, 0, 0);
+   ellipse(applePos.getScreenX(), applePos.getScreenY(), 40, 40);
 }
 
-function mouseClicked() {
-  balls.push(new Ball(new Point(mouseX, mouseY), new Velocity(random(-4, 4), random(-4, 4)), ballSize));
+// Get a prediction for the current video frame
+
+function classifyVideo() {
+  flippedVideo = ml5.flipImage(video)
+  classifier.classify(video, gotResult);
 }
 
-function keyPressed() {
-  if(keyCode == LEFT_ARROW) {
-    gravityDir = 3;
-  } else if(keyCode == DOWN_ARROW) {
-    gravityDir = 0;
-  } else if(keyCode == RIGHT_ARROW) {
-    gravityDir = 1;
-  } else if(keyCode == UP_ARROW) {
-    gravityDir = 2;
+// When we get a result
+function gotResult(error, results) {
+  // If there is an error
+  if (error) {
+    console.error(error);
+    return;
   }
+  // The results are in an array ordered by confidence.
+  // console.log(results[0]);
+  label = results[0].label;
+  // Classifiy again!
+  classifyVideo();
 }
 
-class Point {
-
-  constructor(x, y) {
-    this.x = x;
-    this.y = y;
-  }
-
-}
-
-class Velocity {
-
-  constructor(x, y) {
-    this.x = x;
-    this.y = y;
-  }
-
-}
-
-class Ball {
-
-  constructor(pos, vel, size) {
-    this.pos = pos;
-    this.vel = vel;
-    this.size = size;
-  }
-
-}
+//--------------------------------------------------------------------------------------//
