@@ -9,11 +9,10 @@ Webcam Image Classification using a pre-trained customized model and p5.js
 This example uses p5 preload function to create the classifier
 === */
 
-// Classifier Variable
-let classifier;
 // Model URL
 const URL = "https://teachablemachine.withgoogle.com/models/eCvbR9hvI/";
-let model, ctx, labelContainer;
+let model;
+let isModelLoaded = false;
 
 // Video
 let video;
@@ -162,12 +161,15 @@ function mousePressed() {
 }
 
 // Load the model first
-async function load() {
+async function init() {
   const modelURL = URL + "model.json";
   const metadataURL = URL + "metadata.json";
   model = await tmPose.load(modelURL, metadataURL);
   poseNet = ml5.poseNet(video);
   await poseNet.on('pose', gotPoses);
+  console.log(model);
+  console.log(poseNet);
+  isModelLoaded = true;
 }
 
 async function setup() {
@@ -182,7 +184,6 @@ async function setup() {
   // const modelURL = URL + "model.json";
   // const metadataURL = URL + "metadata.json";
   // model = await tmPose.load(modelURL, metadataURL);
-  console.log(model);
 
   noStroke();
   rectMode(CENTER);
@@ -192,6 +193,8 @@ async function setup() {
   drawBackground();
 
   t = millis();
+
+  await init();
 }
 
 function draw() {
@@ -312,31 +315,37 @@ function draw() {
 
 //--------------------------------------------------------------------------------------//
 
-      function predict() {
-        // Prediction #1: run input through posenet
-        // estimatePose can take in an image, video or canvas html element
+async function predict() {
+  // Prediction #1: run input through posenet
+  // estimatePose can take in an image, video or canvas html element
 
-          const {pose, posenetOutput} = model.estimatePose(flippedVideo);
-          // Prediction 2: run input through teachable machine classification model
-          const prediction = model.predict(posenetOutput);
+  if(!isModelLoaded) {return;}
 
-          for (let i = 0; i < 4; i++) { // 4 is number of categories in model
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            console.log(classPrediction);
-          }
+  console.log("model loaded, predicting");
+  console.log(video);
 
-          if (prediction[0].className === "Up") {
-            direction = 0;
-          } else if (prediction[0].className === "Right") {
-            direction = 1;
-          } else if (prediction[0].className === "Down") {
-            direction = 2;
-          } else if (prediction[0].className === "Left") {
-            direction = 3;
-          }
-    }
+  const {pose, posenetOutput} = await model.estimatePose(video.to, true);
+  console.log("got pose");
+  // Prediction 2: run input through teachable machine classification model
+  const prediction = await model.predict(posenetOutput);
 
-    function gotPoses(results) {
-      poses = results;
-    }
+  console.log(prediction)
+
+  for (let i = 0; i < prediction.length; i++) { // 4 is number of categories in model
+    // const classPrediction =
+    //     prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+    // console.log(classPrediction);
+  }
+
+  if (prediction[0].className === "Up") {
+    direction = 0;
+  } else if (prediction[0].className === "Right") {
+    direction = 1;
+  } else if (prediction[0].className === "Down") {
+    direction = 2;
+  } else if (prediction[0].className === "Left") {
+    direction = 3;
+  }
+}
+
+function gotPoses(results) { poses = results;}
